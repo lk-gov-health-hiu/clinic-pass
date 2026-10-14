@@ -1,3 +1,19 @@
 node_modules/
 .env
 *.log
+app/config.json
+app/data/runtime.json
+tmp/
+app/sludi-private-key.pem
+*.pem
+
+# Workshop material and recordings we do not redistribute
+Recording*.m4a
+*.jpeg
+*.jpg
+docs/reference/
+# Team-internal sheet (LAN address, test OTP)
+docs/test-sheet.docx
+# Local scratch
+tmp/
+app/data/runtime.json

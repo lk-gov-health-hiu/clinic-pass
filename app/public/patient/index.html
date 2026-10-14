@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic Pass - Patient</title>
+<link rel="stylesheet" href="../shared.css">
+</head>
+<body>
+<header><h1>Clinic Pass</h1><small>Patient app · demo data only</small></header>
+<main>
+
+<section id="s-login" class="card">
+  <h2>1. Sign in</h2>
+  <p class="muted">Login with SLUDI fetches your details (eKYC) from the sandbox identity provider. Use a synthetic sandbox citizen.</p>
+  <button onclick="loginReal()">Login with SLUDI</button>
+  <p><a href="#" onclick="login();return false" class="muted">Offline fallback: use simulated login</a></p>
+  <p id="login-msg"></p>
+</section>
+
+<section id="s-phn" class="card hidden">
+  <h2>2. Personal Health Number</h2>
+  <p id="who" class="muted"></p>
+  <label>Enter your PHN so your health data can be retrieved during the visit</label>
+  <input id="phn" placeholder="PHN-0001-2345">
+  <button onclick="submitPhn()">Continue</button>
+  <p id="phn-msg"></p>
+</section>
+
+<section id="s-triage" class="card hidden">
+  <h2>3. What is the problem?</h2>
+  <p class="muted">Describe your new health problem. The assistant suggests the right clinic. It gives guidance, not a diagnosis.</p>
+  <textarea id="problem" placeholder="e.g. My vision has been blurry for two weeks and I get headaches"></textarea>
+  <button onclick="triage()">Find the right clinic</button>
+  <div id="triage-out"></div>
+</section>
+
+<section id="s-book" class="card hidden">
+  <h2>4. Nearest hospital</h2>
+  <p class="muted">Tap a hospital to see its next appointments.</p>
+  <div id="hospitals"></div>
+  <label><input type="checkbox" id="consent" checked style="width:auto"> I consent to share my health record with this clinic during my visit</label>
+  <p id="book-msg"></p>
+</section>
+
+<section id="s-slots" class="card hidden">
+  <h2>5. Choose an appointment</h2>
+  <p id="slot-hosp" class="muted"></p>
+  <h3>Priority appointments</h3>
+  <p class="muted">For pensioners, armed forces and health workers. Verify your category to enable these.</p>
+  <select id="prio-cat">
+    <option value="">Select your category</option>
+    <option value="pensioner">Pensioner (checked with the pensioner registry)</option>
+    <option value="armed_forces">Armed forces (serving or retired)</option>
+    <option value="health_worker">Health worker</option>
+  </select>
+  <button class="secondary" onclick="verifyPriority()">Verify priority</button>
+  <div id="prio-msg"></div>
+  <p class="muted" style="margin-bottom:2px">Next 5 priority slots</p>
+  <div id="prio-slots" class="slots"></div>
+  <h3>Normal appointments</h3>
+  <p class="muted" style="margin-bottom:2px">Next 5 normal slots</p>
+  <div id="norm-slots" class="slots"></div>
+  <p id="slot-msg"></p>
+</section>
+
+<section id="s-pass" class="card hidden">
+  <h2>6. Your appointment pass</h2>
+  <div id="pass"></div>
+  <div id="amb-box"></div>
+</section>
+
+<section id="s-rx" class="card hidden">
+  <h2>7. Prescriptions</h2>
+  <p class="muted">After your visit your prescription arrives here. Show it at any pharmacy. No payment is needed.</p>
+  <button class="secondary" onclick="loadRx()">Check for prescriptions</button>
+  <div id="rx-list"></div>
+</section>
+
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const show = (id) => $(id).classList.remove('hidden');
+const api = async (url, body) => (await fetch(url, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {})).json();
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let patient, triageResult, appt;
+
+async function loginReal() {
+  const r = await api('/api/sludi/start');
+  if (r.error) { $('login-msg').innerHTML = `<span class="banner bad">${esc(r.error)}</span>`; return; }
+  location.href = r.url;
+}
+async function afterSludi(p, note) {
+  patient = p;
+  $('s-login').classList.add('hidden');
+  $('who').innerHTML = `Signed in as <b>${esc(patient.name)}</b>${patient.age != null ? ', ' + patient.age : ''}, NIC ${esc(patient.nic)} <span class="sim">(${esc(note)})</span>`;
+  show('s-phn');
+}
+(async () => {
+  const q = new URLSearchParams(location.search);
+  if (q.get('sid')) { const r = await api('/api/sludi/session/' + q.get('sid')); if (r.patient) afterSludi(r.patient, r.source); }
+  if (q.get('sludi_error')) $('login-msg').innerHTML = `<span class="banner bad">SLUDI login failed: ${esc(q.get('sludi_error'))}</span>`;
+})();
+async function login() {
+  const r = await api('/api/sludi/login', { nic: '195212345V' });
+  patient = r.patient;
+  $('who').innerHTML = `Signed in as <b>${esc(patient.name)}</b>, ${patient.age}, NIC ${esc(patient.nic)}`;
+  show('s-phn');
+}
+async function submitPhn() {
+  const r = await api('/api/phn', { sludiId: patient.sludiId, phn: $('phn').value.trim() });
+  $('phn-msg').innerHTML = r.error ? `<span class="banner bad">${esc(r.error)}</span>` : '<span class="banner ok">PHN linked.</span>';
+  if (!r.error) show('s-triage');
+}
+async function triage() {
+  $('triage-out').innerHTML = '<p class="muted">Thinking...</p>';
+  const r = await api('/api/triage', { text: $('problem').value, sludiId: patient.sludiId });
+  if (r.error) { $('triage-out').innerHTML = `<span class="banner bad">${esc(r.error)}</span>`; return; }
+  triageResult = r;
+  const urgent = r.urgency === 'emergency';
+  $('triage-out').innerHTML =
+    (urgent ? '<div class="banner bad"><b>This may be an emergency.</b> Please go to the nearest emergency department or call 1990 now.</div>' : '') +
+    `<div class="banner ok">Suggested clinic: <b>${esc(r.specialtyName)}</b><br>${esc(r.reason)}</div>` +
+    `<p class="sim">Source: ${esc(r.source)}${r.note ? ' · ' + esc(r.note) : ''}</p>`;
+  $('hospitals').innerHTML = r.hospitals.map((h) => `<div class="hospital" onclick="chooseHospital('${h.id}')"><b>${esc(h.name)}</b><br><span class="muted">${h.distanceKm} km away</span></div>`).join('');
+  show('s-book');
+}
+let chosenHospital, slotData, prioVerified = false;
+const fmtSlot = (s) => `${s.weekday} ${s.date.slice(5).replace('-', '/')}<br><b>${s.time}</b>`;
+async function chooseHospital(hid) {
+  chosenHospital = hid; prioVerified = false;
+  const h = triageResult.hospitals.find((x) => x.id === hid);
+  $('slot-hosp').innerHTML = `<b>${esc(h.name)}</b> · ${esc(triageResult.specialtyName)} clinic`;
+  $('prio-msg').innerHTML = ''; $('prio-cat').value = ''; $('slot-msg').innerHTML = '';
+  slotData = await api(`/api/slots?hospitalId=${hid}&specialty=${triageResult.specialty}`);
+  renderSlots(); show('s-slots');
+  $('s-slots').scrollIntoView({ behavior: 'smooth' });
+}
+function renderSlots() {
+  $('prio-slots').innerHTML = slotData.priority.map((s, i) => `<button class="slot prio" ${prioVerified ? '' : 'disabled'} onclick="bookSlot('priority',${i})">${fmtSlot(s)}</button>`).join('') || '<span class="muted">No priority slots available</span>';
+  $('norm-slots').innerHTML = slotData.normal.map((s, i) => `<button class="slot" onclick="bookSlot('normal',${i})">${fmtSlot(s)}</button>`).join('') || '<span class="muted">No normal slots available</span>';
+}
+async function verifyPriority() {
+  const category = $('prio-cat').value;
+  if (!category) { $('prio-msg').innerHTML = '<span class="banner warn">Select a category first.</span>'; return; }
+  $('prio-msg').innerHTML = '<span class="muted">Verifying...</span>';
+  const r = await api('/api/priority/verify', { sludiId: patient.sludiId, category });
+  prioVerified = !!r.verified; renderSlots();
+  $('prio-msg').innerHTML = r.error ? `<span class="banner bad">${esc(r.error)}</span>` :
+    r.verified ? `<div class="banner ok"><b>${esc(r.label)} verified.</b> Priority slots are now enabled.<br><span class="sim">${esc(r.method)}. ${esc(r.detail || '')}</span></div>`
+      : `<div class="banner bad"><b>Could not verify ${esc(r.label)}.</b> Please choose a normal appointment.<br><span class="sim">${esc(r.method)}</span></div>`;
+}
+async function bookSlot(type, i) {
+  const slot = slotData[type === 'priority' ? 'priority' : 'normal'][i];
+  $('slot-msg').innerHTML = '<span class="muted">Booking...</span>';
+  const r = await api('/api/appointments', { sludiId: patient.sludiId, hospitalId: chosenHospital, specialty: triageResult.specialty, triage: triageResult.summary, consentRecord: $('consent').checked, slot });
+  if (r.error) {
+    $('slot-msg').innerHTML = `<span class="banner bad">${esc(r.error)}</span>`;
+    slotData = await api(`/api/slots?hospitalId=${chosenHospital}&specialty=${triageResult.specialty}`); renderSlots(); return;
+  }
+  appt = r.appointment;
+  $('slot-msg').innerHTML = '';
+  $('pass').innerHTML =
+    `<div class="vc"><b>Clinic Appointment Pass</b> <span class="sim">(verifiable credential)</span><br>` +
+    `<img src="${r.qr}" alt="QR"><br>` +
+    `<b>${esc(appt.specialtyName)}</b> · ${esc(appt.hospitalName)}<br>${esc(appt.date)} at ${esc(appt.time)}<br>` +
+    (appt.priority ? `<span class="tag ok">Priority: ${esc(appt.priorityCategory)}</span>` : '<span class="tag">Normal appointment</span>') +
+    `<p class="muted">Show this at the registration counter. For the demo, copy the pass text:</p>` +
+    `<div class="token" id="tok">${esc(appt.credential)}</div>` +
+    `<button onclick="shareIt('${appt.id}', this)">Show at registration counter</button> <button class="secondary" onclick="copyTok()">Copy pass</button></div>`;
+  $('amb-box').innerHTML = `<h2 style="margin-top:14px">Need an ambulance?</h2><p class="muted">Value-added service, paid through GovPay (LKR 2,500).</p><button class="secondary" onclick="ambulance()">Book ambulance</button><div id="amb-out"></div>`;
+  show('s-pass'); show('s-rx');
+  $('s-pass').scrollIntoView({ behavior: 'smooth' });
+}
+async function shareIt(id, btn) { await api('/api/share', { id }); btn.textContent = 'Shown. The staff can now read it.'; btn.disabled = true; }
+function copyTok() { navigator.clipboard.writeText($('tok').textContent); }
+async function ambulance() {
+  const r = await api('/api/ambulance', { appointmentId: appt.id, pickup: patient.address });
+  $('amb-out').innerHTML = r.error ? `<span class="banner bad">${esc(r.error)}</span>` : `<div class="banner ok">Ambulance booked (${esc(r.id)}). ${r.payment.status === 'PAID' ? 'Paid' : 'Payment ' + esc(r.payment.status.toLowerCase())}: LKR ${r.payment.amountLkr} via ${esc(r.payment.provider)}.${r.payment.redirectUrl ? ` <a href="${esc(r.payment.redirectUrl)}" target="_blank">Open payment page</a>` : ''}</div>`;
+}
+async function loadRx() {
+  const list = await api('/api/prescriptions/mine/' + patient.sludiId);
+  $('rx-list').innerHTML = list.length ? list.map((r) =>
+    `<div class="vc" style="margin-top:10px"><b>Prescription ${esc(r.id)}</b> <span class="tag ${r.status === 'ISSUED' ? 'ok' : 'warn'}">${esc(r.status)}</span><br>` +
+    `<img src="${r.qr}" alt="QR"><br>` +
+    r.subject.medicines.map((m) => `${esc(m.name)} ${esc(m.dose || '')} ${esc(m.days ? 'x ' + m.days + ' days' : '')}`).join('<br>') +
+    `<br><span class="sim">Signed: ${esc(r.signature.method)} · ${esc(r.signature.signer)}</span>` +
+    `<div class="token" id="rtok-${r.id}">${esc(r.credential)}</div>` +
+    `<button onclick="shareIt('${r.id}', this)">Show at pharmacy</button> <button class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('rtok-${r.id}').textContent)">Copy prescription</button></div>`).join('')
+    : '<p class="muted">No prescriptions yet.</p>';
+}
+</script>
+</body>
+</html>

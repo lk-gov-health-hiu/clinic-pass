@@ -1,0 +1,19 @@
+{
+  "name": "clinic-pass",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Clinic Pass: patient app + hospital app demo on Sri Lanka DPI sandbox (SLUDI, NDX, VC, Digi-Sign, GovPay)",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/api-flow.js",
+    "test:ui": "node test/ui-flow.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.4"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "playwright-core": "^1.64.0"
+  }
+}

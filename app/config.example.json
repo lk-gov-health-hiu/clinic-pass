@@ -1,0 +1,11 @@
+{
+  "anthropicApiKey": "",
+  "model": "claude-haiku-5-5",
+  "port": 3000,
+  "disClientId": "",
+  "disApiKey": "",
+  "sludiClientId": "",
+  "paymentsMerchantId": "merch_5f8a9d2c",
+  "demoPriorityAll": true,
+  "credentialSecret": "change-me-demo-secret"
+}

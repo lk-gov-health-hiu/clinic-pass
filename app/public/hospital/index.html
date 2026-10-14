@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic Pass - Hospital</title>
+<link rel="stylesheet" href="../shared.css">
+</head>
+<body class="wide">
+<header>
+  <h1>Clinic Pass · Hospital</h1>
+  <small>Hospital: <select id="hosp" onchange="refresh()" style="width:auto;display:inline-block;padding:4px">
+    <option value="h1">Colombo North Teaching Hospital</option>
+    <option value="h2">Ragama Base Hospital</option>
+    <option value="h3">Kandy Provincial Hospital</option>
+  </select> · simulated hospital system</small>
+</header>
+<main>
+<div class="tabs">
+  <button id="t-counter" class="active" onclick="tab('counter')">Registration counter</button>
+  <button id="t-clin" onclick="tab('clin')">Clinician</button>
+  <button id="t-pharm" onclick="tab('pharm')">Pharmacy</button>
+</div>
+
+<!-- COUNTER -->
+<div id="counter">
+  <div class="card">
+    <h2>Verify appointment pass</h2>
+    <p class="muted">Scan the patient's QR, or paste the pass text from their phone.</p>
+    <textarea id="c-token" placeholder="Paste appointment credential"></textarea>
+    <button class="secondary" onclick="loadShared('appointment')">Load from patient phone</button>
+    <button onclick="verifyAppt()">Verify pass</button>
+    <div id="c-out"></div>
+  </div>
+  <div class="card"><h2>Today's and upcoming appointments</h2><div id="queue"></div></div>
+</div>
+
+<!-- CLINICIAN -->
+<div id="clin" class="hidden">
+  <div class="card"><h2>Patients sent in by the counter</h2><div id="ready"></div></div>
+  <div id="visit" class="hidden">
+    <div class="card"><h2>Patient and consented health record</h2><div id="rec"></div></div>
+    <div class="card">
+      <h2>Visit and prescription</h2>
+      <label>Diagnosis / impression</label><input id="dx">
+      <label>Notes</label><textarea id="notes"></textarea>
+      <label>Medicines</label>
+      <div id="meds"></div>
+      <button class="secondary" onclick="addMed()">+ Add medicine</button>
+      <p class="muted">The prescription is signed with Digi-Sign <span class="sim">(simulated)</span>. Prescriptions are free of charge.</p>
+      <button class="ok" onclick="finishVisit()">Update record, sign and issue prescription</button>
+      <div id="rx-out"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PHARMACY -->
+<div id="pharm" class="hidden">
+  <div class="card">
+    <h2>Verify prescription</h2>
+    <textarea id="p-token" placeholder="Paste prescription credential"></textarea>
+    <button class="secondary" onclick="loadShared('prescription')">Load from patient phone</button>
+    <button onclick="verifyRx()">Verify prescription</button>
+    <div id="p-out"></div>
+  </div>
+</div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const api = async (url, body) => (await fetch(url, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {})).json();
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let current;
+
+function tab(t) {
+  for (const x of ['counter', 'clin', 'pharm']) { $(x).classList.toggle('hidden', x !== t); $('t-' + x).classList.toggle('active', x === t); }
+  refresh();
+}
+const statusTag = (s) => `<span class="tag ${s === 'BOOKED' ? '' : s === 'REGISTERED' ? 'warn' : 'ok'}">${s}</span>`;
+
+async function refresh() {
+  const list = await api(`/api/hospital/${$('hosp').value}/appointments`);
+  $('queue').innerHTML = list.length ? '<table><tr><th>Time</th><th>Patient</th><th>Clinic</th><th>Priority</th><th>Status</th></tr>' +
+    list.map((a) => `<tr><td>${esc(a.date)} ${esc(a.time)}</td><td>${esc(a.patientName)}</td><td>${esc(a.specialtyName)}</td><td>${a.priority ? esc(a.priorityCategory || 'Priority') : '-'}</td><td>${statusTag(a.status)}</td></tr>`).join('') + '</table>'
+    : '<p class="muted">No appointments yet.</p>';
+  const ready = list.filter((a) => a.status === 'REGISTERED');
+  $('ready').innerHTML = ready.length ? ready.map((a) =>
+    `<div class="hospital" onclick="openVisit('${a.id}')"><b>${esc(a.patientName)}</b> · ${esc(a.specialtyName)} · ${esc(a.time)}${a.priority ? ' <span class="tag ok">Priority</span>' : ''}</div>`).join('')
+    : '<p class="muted">Nobody waiting. Register a patient at the counter first.</p>';
+}
+
+async function loadShared(kind) {
+  const r = await (await fetch(kind === 'appointment' ? `/api/shared/appointment/${$('hosp').value}` : '/api/shared/prescription')).json();
+  const box = kind === 'appointment' ? 'c-token' : 'p-token', out = kind === 'appointment' ? 'c-out' : 'p-out';
+  if (r.error) { $(out).innerHTML = `<div class="banner warn">${esc(r.error)}</div>`; return; }
+  $(box).value = r.token;
+  kind === 'appointment' ? verifyAppt() : verifyRx();
+}
+async function verifyAppt() {
+  const r = await api('/api/verify/appointment', { token: $('c-token').value });
+  if (!r.valid) { $('c-out').innerHTML = `<div class="banner bad"><b>Not valid.</b> ${esc(r.reason)}</div>`; return; }
+  const a = r.appointment;
+  $('c-out').innerHTML = `<div class="banner ok"><b>Valid appointment pass.</b> Issuer signature checked.</div>` +
+    `<p><b>${esc(a.patientName)}</b> · NIC ${esc(a.nic)} · PHN ${esc(a.phn)}<br>${esc(a.specialtyName)} · ${esc(a.hospitalName)} · ${esc(a.date)} ${esc(a.time)}` +
+    `${a.priority ? '<br><span class="tag ok">Priority: ' + esc(a.priorityCategory) + '</span> <span class="sim">' + esc(a.priorityMethod || '') + '</span>' : ''}</p>` +
+    (a.status === 'BOOKED' ? `<button class="ok" onclick="registerPt('${a.id}')">Register and send to clinician</button>` : `<p>${statusTag(a.status)} already processed.</p>`);
+}
+async function registerPt(id) {
+  await api(`/api/appointments/${id}/register`, {});
+  $('c-out').innerHTML = '<div class="banner ok">Registered. The patient is now in the clinician queue.</div>';
+  $('c-token').value = ''; refresh();
+}
+
+async function openVisit(id) {
+  current = id;
+  const r = await (await fetch(`/api/appointments/${id}/record`)).json();
+  const appts = await api(`/api/hospital/${$('hosp').value}/appointments`);
+  const a = appts.find((x) => x.id === id);
+  $('visit').classList.remove('hidden');
+  const t = a.triage;
+  $('rec').innerHTML = `<p><b>${esc(a.patientName)}</b> · PHN ${esc(a.phn)}</p>` +
+    (t ? `<div class="banner warn"><b>Patient's own description (AI triage summary):</b> ${esc((t.symptoms || []).join('; '))}${t.duration ? ' · duration: ' + esc(t.duration) : ''}${(t.redFlags || []).length ? '<br><b>Red flags:</b> ' + esc(t.redFlags.join('; ')) : ''}</div>` : '') +
+    (r.error ? `<div class="banner bad">${esc(r.error)}</div>` :
+      `<p><b>Conditions:</b> ${r.record.conditions.map(esc).join('; ')}<br><b>Allergies:</b> ${r.record.allergies.map(esc).join('; ')}<br><b>Regular medicines:</b> ${r.record.regularMedicines.map(esc).join('; ')}</p>` +
+      '<table><tr><th>Date</th><th>Clinic</th><th>Note</th></tr>' + r.record.visits.map((v) => `<tr><td>${esc(v.date)}</td><td>${esc(v.clinic)}</td><td>${esc(v.note)}</td></tr>`).join('') + '</table>' +
+      `<p class="sim">${esc(r.source)}</p>`);
+  $('meds').innerHTML = ''; addMed();
+  $('rx-out').innerHTML = ''; $('dx').value = ''; $('notes').value = '';
+}
+function addMed() {
+  const d = document.createElement('div'); d.className = 'row med';
+  d.innerHTML = '<input placeholder="Medicine" class="m-name"><input placeholder="Dose e.g. 1 tab twice daily" class="m-dose"><input placeholder="Days" class="m-days" type="number">';
+  $('meds').appendChild(d);
+}
+async function finishVisit() {
+  const medicines = [...document.querySelectorAll('.med')].map((r) => ({ name: r.querySelector('.m-name').value, dose: r.querySelector('.m-dose').value, days: r.querySelector('.m-days').value }));
+  const r = await api(`/api/appointments/${current}/visit`, { diagnosis: $('dx').value, notes: $('notes').value, medicines, clinician: 'Dr. S. Fernando (demo)' });
+  if (r.error) { $('rx-out').innerHTML = `<div class="banner bad">${esc(r.error)}</div>`; return; }
+  $('rx-out').innerHTML = `<div class="banner ok">Health record updated. Prescription ${esc(r.prescription.id)} signed and sent to the patient's wallet.</div>` +
+    `<div class="vc"><img src="${r.qr}" alt="QR"><div class="token">${esc(r.prescription.credential)}</div></div>`;
+  refresh();
+}
+
+async function verifyRx() {
+  const r = await api('/api/verify/prescription', { token: $('p-token').value });
+  if (!r.valid) { $('p-out').innerHTML = `<div class="banner bad"><b>Not valid.</b> ${esc(r.reason)}</div>`; return; }
+  const p = r.prescription, s = p.subject;
+  $('p-out').innerHTML = `<div class="banner ok"><b>Valid prescription.</b> Signed by ${esc(p.signature.signer)} (${esc(p.signature.method)}).</div>` +
+    `<p><b>${esc(s.patient)}</b> · ${esc(s.hospital)} · ${esc(s.date)}<br>Diagnosis: ${esc(s.diagnosis)}</p>` +
+    '<table><tr><th>Medicine</th><th>Dose</th><th>Days</th></tr>' + s.medicines.map((m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.dose)}</td><td>${esc(m.days)}</td></tr>`).join('') + '</table>' +
+    `<p>Payment: <b>${esc(s.payment)}</b></p><button class="ok" onclick="dispense('${p.id}')">Mark dispensed</button>`;
+}
+async function dispense(id) {
+  await api(`/api/prescriptions/${id}/dispense`, {});
+  $('p-out').innerHTML = '<div class="banner ok">Dispensed. This prescription cannot be used again.</div>'; $('p-token').value = '';
+}
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>
