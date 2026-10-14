@@ -72,7 +72,7 @@ async function digiSign(rxPayload, doctor, speciality) {
 }
 // Payments: real call to the Payment Platform API (IPG simulator) when DIS credentials are in config.json;
 // falls back to a labelled simulation if the call fails (same pattern as Day 1).
-async function govPayCharge(amountLkr, ref, who) {
+async function govPayCharge(amountLkr, ref, who, origin, returnTo = '/patient/') {   // origin: the address the patient's browser used, so the return works from other machines
   const base = config.paymentsBaseUrl || 'https://api.staging.devportal.gov.lk/payment-gateway/v1.0.0'  // Payment Gateway API: its transaction store backs the checkout page (Payment Platform API links 404);
   if (config.disClientId && config.disApiKey) {
     try {
@@ -81,7 +81,7 @@ async function govPayCharge(amountLkr, ref, who) {
         headers: { 'content-type': 'application/json', 'X-DIS-CLIENT-ID': config.disClientId, 'X-DIS-API-KEY': config.disApiKey },
         body: JSON.stringify({
           merchant_id: config.paymentsMerchantId || 'merch_5f8a9d2c', amount: amountLkr, currency: 'LKR',
-          notify_url: `http://localhost:${config.port}/api/payment-webhook`, return_url: `http://localhost:${config.port}/patient/`,
+          notify_url: `${origin}/api/payment-webhook`, return_url: `${origin}${returnTo}`,
           metadata: { first_name: who || 'Patient', last_name: 'Demo', email: 'demo@example.com', reference: ref },
         }),
       });
@@ -474,10 +474,21 @@ app.post('/api/ambulance', async (req, res) => {
   const town = req.body.address ? (townFromAddress(req.body.address) || {}).id : (req.body.pickupTown || 'colombo');
   const quote = ambulanceQuote(town, req.body.hospitalId || appt.hospitalId);
   if (!quote) return res.status(400).json({ error: 'We could not place your profile address near a known town' });
-  const booking = { id: nextId('AMB'), appointmentId: appt.id, pickup: quote.from, to: quote.hospital, km: quote.km,
-    payment: await govPayCharge(quote.fareLkr, appt.id, (appt.patientName || '').split(' ')[0]) };
+  const id = nextId('AMB');
+  const booking = { id, appointmentId: appt.id, pickup: quote.from, to: quote.hospital, km: quote.km,
+    payment: await govPayCharge(quote.fareLkr, appt.id, (appt.patientName || '').split(' ')[0], config.publicBaseUrl || `${req.protocol}://${req.headers.host}`, `/patient/?amb=${id}`) };
   state.ambulances.push(booking); save();
   res.json(booking);
+});
+// The patient comes back here from the payment page. The sandbox cannot reach this laptop to confirm payment (notify_url),
+// so coming back without a cancel/fail status marks the booking PAID (simulated confirmation; labelled in the app).
+app.get('/api/ambulance/:id/return', async (req, res) => {
+  const b = state.ambulances.find((x) => x.id === req.params.id);
+  if (!b) return res.status(404).json({ error: 'Booking not found' });
+  const status = String(req.query.status || '').toUpperCase();
+  if (b.payment.status === 'INITIATED') { b.payment.status = /CANCEL|FAIL/.test(status) ? 'CANCELED' : 'PAID'; b.payment.confirmedOnReturn = true; save(); }
+  const appointment = find(b.appointmentId);
+  res.json({ booking: b, appointment, patient: findPatient(appointment.sludiId), qr: await qr(appointment.credential) });
 });
 
 // Hospital: list + verify + register

@@ -98,6 +98,7 @@ async function afterSludi(p, note) {
 }
 (async () => {
   const q = new URLSearchParams(location.search);
+  if (q.get('amb')) { await restoreAfterPayment(q.get('amb'), q.get('status')); return; }
   if (q.get('sid')) { const r = await api('/api/sludi/session/' + q.get('sid')); if (r.patient) afterSludi(r.patient, r.source); }
   if (q.get('sludi_error')) $('login-msg').innerHTML = `<span class="banner bad">SLUDI login failed: ${esc(q.get('sludi_error'))}</span>`;
 })();
@@ -160,18 +161,21 @@ async function bookSlot(type, i) {
   }
   appt = r.appointment;
   $('slot-msg').innerHTML = '';
+  renderPass(r.qr);
+  await initAmbulance();
+  show('s-pass'); show('s-rx');
+  $('s-pass').scrollIntoView({ behavior: 'smooth' });
+}
+function renderPass(qrImg) {
   $('pass').innerHTML =
     `<div class="vc"><b>Clinic Appointment Pass</b> <span class="sim">(verifiable credential)</span><br>` +
-    `<img src="${r.qr}" alt="QR"><br>` +
+    `<img src="${qrImg}" alt="QR"><br>` +
     `<b>${esc(appt.patientName)}</b><br><span class="muted">${esc(appt.phn)} · Ref ${esc(appt.id)}</span><br>` +
     `<b>${esc(appt.specialtyName)}</b> · ${esc(appt.hospitalName)}<br><span class="muted">${esc(appt.hospitalAddress || '')}</span><br>${esc(appt.date)} at ${esc(appt.time)}<br>` +
     (appt.priority ? `<span class="tag ok">Priority: ${esc(appt.priorityCategory)}</span>` : '<span class="tag">Normal appointment</span>') +
     `<p class="muted">Show this at the registration counter. For the demo, copy the pass text:</p>` +
     `<div class="token" id="tok">${esc(appt.credential)}</div>` +
     `<button onclick="shareIt('${appt.id}', this)">Show at registration counter</button> <button class="secondary" onclick="copyTok(this)">Copy pass</button></div>`;
-  await initAmbulance();
-  show('s-pass'); show('s-rx');
-  $('s-pass').scrollIntoView({ behavior: 'smooth' });
 }
 async function shareIt(id, btn) { await api('/api/share', { id }); btn.textContent = 'Shown. The staff can now read it.'; btn.disabled = true; }
 // Copy inside the click gesture: execCommand works on plain http (LAN) pages; navigator.clipboard needs https/localhost and can hang
@@ -199,7 +203,24 @@ async function quoteAmbulance() {
 }
 async function ambulance() {
   const r = await api('/api/ambulance', { appointmentId: appt.id, address: patient.address, hospitalId: appt.hospitalId });
-  $('amb-out').innerHTML = r.error ? `<span class="banner bad">${esc(r.error)}</span>` : `<div class="banner ok">Ambulance booked (${esc(r.id)}). ${r.payment.status === 'PAID' ? 'Paid' : 'Payment ' + esc(r.payment.status.toLowerCase())}: LKR ${r.payment.amountLkr} via ${esc(r.payment.provider)}.${r.payment.redirectUrl ? ` <a href="${esc(r.payment.redirectUrl)}" target="_blank">Open payment page</a>` : ''}</div>`;
+  $('amb-out').innerHTML = r.error ? `<span class="banner bad">${esc(r.error)}</span>` : `<div class="banner ok">Ambulance booked (${esc(r.id)}). ${r.payment.status === 'PAID' ? 'Paid' : 'Payment ' + esc(r.payment.status.toLowerCase())}: LKR ${r.payment.amountLkr} via ${esc(r.payment.provider)}.${r.payment.redirectUrl ? ` <a href="${esc(r.payment.redirectUrl)}"">Pay now</a>` : ''}</div>`;
+}
+const ambBanner = (b) => b.payment.status === 'PAID'
+  ? `<div class="banner ok"><b>Paid.</b> Ambulance booked (${esc(b.id)}): LKR ${b.payment.amountLkr} via ${esc(b.payment.provider)}. <span class="sim">Payment confirmed when you returned from the sandbox page (simulated confirmation).</span></div>`
+  : `<div class="banner bad">Payment ${esc(b.payment.status.toLowerCase())} for ambulance ${esc(b.id)}.</div>`;
+// Coming back from the payment page loads a fresh page, so rebuild the screen from the server
+async function restoreAfterPayment(ambId, status) {
+  const r = await api(`/api/ambulance/${encodeURIComponent(ambId)}/return` + (status ? '?status=' + encodeURIComponent(status) : ''));
+  if (r.error) { $('login-msg').innerHTML = `<span class="banner bad">${esc(r.error)}</span>`; return; }
+  patient = r.patient; appt = r.appointment; triageResult = { hospitals: [] };
+  $('s-login').classList.add('hidden');
+  $('who').innerHTML = `Signed in as <b>${esc(patient.name)}</b>, NIC ${esc(patient.nic)}`;
+  show('s-pass'); show('s-rx');
+  renderPass(r.qr);
+  await initAmbulance();
+  $('amb-out').innerHTML = ambBanner(r.booking);
+  history.replaceState(null, '', location.pathname);
+  loadRx();
 }
 async function loadRx() {
   const list = await api('/api/prescriptions/mine/' + patient.sludiId);
