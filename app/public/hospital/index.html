@@ -89,6 +89,16 @@ async function refresh() {
     : '<p class="muted">Nobody waiting. Register a patient at the counter first.</p>';
 }
 
+// Copy inside the click gesture: execCommand works on plain http (LAN) pages; navigator.clipboard needs https/localhost
+async function copyText(text, btn) {
+  let ok = false;
+  const t = document.createElement('textarea'); t.value = text; t.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(t); t.select();
+  try { ok = document.execCommand('copy'); } catch (x) {}
+  t.remove();
+  if (!ok) { try { await Promise.race([navigator.clipboard.writeText(text), new Promise((_, no) => setTimeout(no, 1500))]); ok = true; } catch (e) {} }
+  const old = btn.dataset.label || btn.textContent; btn.dataset.label = old; btn.textContent = ok ? 'Copied' : 'Copy failed: select the text and copy'; setTimeout(() => (btn.textContent = old), 2000);
+}
 async function loadShared(kind) {
   const r = await (await fetch(kind === 'appointment' ? `/api/shared/appointment/${$('hosp').value}` : '/api/shared/prescription')).json();
   const box = kind === 'appointment' ? 'c-token' : 'p-token', out = kind === 'appointment' ? 'c-out' : 'p-out';
@@ -103,10 +113,12 @@ async function verifyAppt() {
   $('c-out').innerHTML = `<div class="banner ok"><b>Valid appointment pass.</b> Issuer signature checked.</div>` +
     `<p><b>${esc(a.patientName)}</b> · NIC ${esc(a.nic)} · PHN ${esc(a.phn)}<br>${esc(a.specialtyName)} · ${esc(a.hospitalName)} · ${esc(a.date)} ${esc(a.time)}` +
     `${a.priority ? '<br><span class="tag ok">Priority: ' + esc(a.priorityCategory) + '</span> <span class="sim">' + esc(a.priorityMethod || '') + '</span>' : ''}</p>` +
-    (a.status === 'BOOKED' ? `<button class="ok" onclick="registerPt('${a.id}')">Register and send to clinician</button>` : `<p>${statusTag(a.status)} already processed.</p>`);
+    (a.hospitalId !== $('hosp').value ? `<div class="banner bad"><b>Wrong hospital.</b> This pass is for ${esc(a.hospitalName)}. Switch the hospital selector at the top to register it.</div>` :
+    a.status === 'BOOKED' ? `<button class="ok" onclick="registerPt('${a.id}')">Register and send to clinician</button>` : `<p>${statusTag(a.status)} already processed.</p>`);
 }
 async function registerPt(id) {
-  await api(`/api/appointments/${id}/register`, {});
+  const r = await api(`/api/appointments/${id}/register`, { hospitalId: $('hosp').value });
+  if (r.error) { $('c-out').innerHTML = `<div class="banner bad">${esc(r.error)}</div>`; return; }
   $('c-out').innerHTML = '<div class="banner ok">Registered. The patient is now in the clinician queue.</div>';
   $('c-token').value = ''; refresh();
 }
@@ -134,10 +146,11 @@ function addMed() {
 }
 async function finishVisit() {
   const medicines = [...document.querySelectorAll('.med')].map((r) => ({ name: r.querySelector('.m-name').value, dose: r.querySelector('.m-dose').value, days: r.querySelector('.m-days').value }));
-  const r = await api(`/api/appointments/${current}/visit`, { diagnosis: $('dx').value, notes: $('notes').value, medicines, clinician: 'Dr. S. Fernando (demo)' });
+  const r = await api(`/api/appointments/${current}/visit`, { diagnosis: $('dx').value, notes: $('notes').value, medicines });
   if (r.error) { $('rx-out').innerHTML = `<div class="banner bad">${esc(r.error)}</div>`; return; }
   $('rx-out').innerHTML = `<div class="banner ok">Health record updated. Prescription ${esc(r.prescription.id)} signed and sent to the patient's wallet.</div>` +
-    `<div class="vc"><img src="${r.qr}" alt="QR"><div class="token">${esc(r.prescription.credential)}</div></div>`;
+    `<div class="vc"><img src="${r.qr}" alt="QR"><div class="token" id="rx-tok">${esc(r.prescription.credential)}</div>` +
+    `<button class="secondary" onclick="copyText($('rx-tok').textContent, this)">Copy prescription</button></div>`;
   refresh();
 }
 
@@ -145,7 +158,7 @@ async function verifyRx() {
   const r = await api('/api/verify/prescription', { token: $('p-token').value });
   if (!r.valid) { $('p-out').innerHTML = `<div class="banner bad"><b>Not valid.</b> ${esc(r.reason)}</div>`; return; }
   const p = r.prescription, s = p.subject;
-  $('p-out').innerHTML = `<div class="banner ok"><b>Valid prescription.</b> Signed by ${esc(p.signature.signer)} (${esc(p.signature.method)}).</div>` +
+  $('p-out').innerHTML = `<div class="banner ok"><b>Valid prescription.</b> Signed by ${esc(p.signature.signer)}, ${esc(p.signature.speciality || '')}, ${esc(p.signature.slmcRegNo || '')} (${esc(p.signature.method)}).</div>` +
     `<p><b>${esc(s.patient)}</b> · ${esc(s.hospital)} · ${esc(s.date)}<br>Diagnosis: ${esc(s.diagnosis)}</p>` +
     '<table><tr><th>Medicine</th><th>Dose</th><th>Days</th></tr>' + s.medicines.map((m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.dose)}</td><td>${esc(m.days)}</td></tr>`).join('') + '</table>' +
     `<p>Payment: <b>${esc(s.payment)}</b></p><button class="ok" onclick="dispense('${p.id}')">Mark dispensed</button>`;

@@ -4,7 +4,7 @@ Two front-ends on one Node/Express server.
 
 | URL | App |
 |---|---|
-| `/patient/` | Patient (phone-sized): SLUDI login, PHN, AI triage, hospital, appointment slots, priority verification, pass, ambulance (fare preview by pickup town and hospital), prescriptions |
+| `/patient/` | Patient (phone-sized): SLUDI login, PHN, AI triage, hospital, appointment slots, priority verification, pass, ambulance (pickup from the profile address, destination the booked hospital, fare shown automatically), prescriptions |
 | `/hospital/` | Hospital: Registration counter, Clinician, Pharmacy (hospital selector top right) |
 
 ## Setup
@@ -61,7 +61,7 @@ test/            api-flow.js, ui-flow.js
 
 ## API routes (summary)
 
-`GET /api/status`, `POST /api/sludi/login` (simulated), `GET /api/sludi/start` and `GET /patient/callback` (real), `POST /api/phn`, `POST /api/triage`, `GET /api/slots`, `POST /api/priority/verify`, `POST /api/appointments`, `POST /api/ambulance`, `POST /api/share`, `GET /api/shared/...`, `GET /api/hospital/:hid/appointments`, `POST /api/verify/appointment`, `POST /api/appointments/:id/register`, `GET /api/appointments/:id/record`, `POST /api/appointments/:id/visit`, `GET /api/prescriptions/mine/:sludiId`, `POST /api/verify/prescription`, `POST /api/prescriptions/:id/dispense`, `POST /api/reset` (clears bookings; demo helper).
+`GET /api/status`, `POST /api/sludi/login` (simulated), `GET /api/sludi/start` and `GET /patient/callback` (real), `POST /api/phn`, `POST /api/triage`, `GET /api/slots`, `POST /api/priority/verify`, `POST /api/appointments`, `GET /api/appointments/:id/wallet` (unsigned Google Wallet pass object, simulated), `GET /api/ambulance/quote` (`address` or `pickupTown`, `hospitalId`), `POST /api/ambulance`, `POST /api/share`, `GET /api/shared/...`, `GET /api/hospital/:hid/appointments`, `POST /api/verify/appointment`, `POST /api/appointments/:id/register`, `GET /api/appointments/:id/record`, `POST /api/appointments/:id/visit`, `GET /api/prescriptions/mine/:sludiId`, `POST /api/verify/prescription`, `POST /api/prescriptions/:id/dispense`, `POST /api/reset` (clears bookings; demo helper).
 
 ## Sharing on a network
 

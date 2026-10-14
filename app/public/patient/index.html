@@ -163,35 +163,42 @@ async function bookSlot(type, i) {
   $('pass').innerHTML =
     `<div class="vc"><b>Clinic Appointment Pass</b> <span class="sim">(verifiable credential)</span><br>` +
     `<img src="${r.qr}" alt="QR"><br>` +
-    `<b>${esc(appt.specialtyName)}</b> · ${esc(appt.hospitalName)}<br>${esc(appt.date)} at ${esc(appt.time)}<br>` +
+    `<b>${esc(appt.patientName)}</b><br><span class="muted">${esc(appt.phn)} · Ref ${esc(appt.id)}</span><br>` +
+    `<b>${esc(appt.specialtyName)}</b> · ${esc(appt.hospitalName)}<br><span class="muted">${esc(appt.hospitalAddress || '')}</span><br>${esc(appt.date)} at ${esc(appt.time)}<br>` +
     (appt.priority ? `<span class="tag ok">Priority: ${esc(appt.priorityCategory)}</span>` : '<span class="tag">Normal appointment</span>') +
     `<p class="muted">Show this at the registration counter. For the demo, copy the pass text:</p>` +
     `<div class="token" id="tok">${esc(appt.credential)}</div>` +
-    `<button onclick="shareIt('${appt.id}', this)">Show at registration counter</button> <button class="secondary" onclick="copyTok()">Copy pass</button></div>`;
+    `<button onclick="shareIt('${appt.id}', this)">Show at registration counter</button> <button class="secondary" onclick="copyTok(this)">Copy pass</button></div>`;
   await initAmbulance();
   show('s-pass'); show('s-rx');
   $('s-pass').scrollIntoView({ behavior: 'smooth' });
 }
 async function shareIt(id, btn) { await api('/api/share', { id }); btn.textContent = 'Shown. The staff can now read it.'; btn.disabled = true; }
-function copyTok() { navigator.clipboard.writeText($('tok').textContent); }
+// Copy inside the click gesture: execCommand works on plain http (LAN) pages; navigator.clipboard needs https/localhost and can hang
+async function copyText(text, btn) {
+  let ok = false;
+  const t = document.createElement('textarea'); t.value = text; t.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(t); t.select();
+  try { ok = document.execCommand('copy'); } catch (x) {}
+  t.remove();
+  if (!ok) { try { await Promise.race([navigator.clipboard.writeText(text), new Promise((_, no) => setTimeout(no, 1500))]); ok = true; } catch (e) {} }
+  if (btn) { const old = btn.dataset.label || btn.textContent; btn.dataset.label = old; btn.textContent = ok ? 'Copied' : 'Copy failed: select the text and copy'; setTimeout(() => (btn.textContent = old), 2000); }
+}
+function copyTok(btn) { copyText($('tok').textContent, btn); }
 async function initAmbulance() {
-  const o = await (await fetch('/api/ambulance/options')).json();
-  const addr = (patient.address || '').toLowerCase();
-  const home = (o.towns.find((t) => addr.includes(t.name.toLowerCase())) || o.towns[0]).id;
-  const opts = (list, sel) => list.map((x) => `<option value="${esc(x.id)}"${x.id === sel ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+  const hosp = (triageResult.hospitals.find((x) => x.id === appt.hospitalId) || {}).name || appt.hospitalName;
   $('amb-box').innerHTML = `<h2 style="margin-top:14px">Need an ambulance?</h2><p class="muted">Value-added service, paid through GovPay.</p>` +
-    `<label>Pickup address<select id="amb-from" onchange="quoteAmbulance()">${opts(o.towns, home)}</select></label>` +
-    `<label>Hospital<select id="amb-to" onchange="quoteAmbulance()">${opts(o.hospitals, appt.hospitalId)}</select></label>` +
+    `<p><b>Pickup:</b> ${esc(patient.address || 'address not available')} <span class="muted">(from your profile)</span><br><b>To:</b> ${esc(hosp)} <span class="muted">(your appointment)</span></p>` +
     `<div id="amb-quote" class="banner"></div><button class="secondary" onclick="ambulance()">Book ambulance</button><div id="amb-out"></div>`;
   await quoteAmbulance();
 }
 async function quoteAmbulance() {
-  const q = await (await fetch(`/api/ambulance/quote?pickupTown=${$('amb-from').value}&hospitalId=${$('amb-to').value}`)).json();
+  const q = await (await fetch(`/api/ambulance/quote?address=${encodeURIComponent(patient.address || '')}&hospitalId=${appt.hospitalId}`)).json();
   $('amb-quote').innerHTML = q.error ? esc(q.error) :
     `<b>LKR ${q.fareLkr.toLocaleString()}</b> · about ${q.km} km, ${esc(q.from)} to ${esc(q.to)}<br><span class="sim">Simulated fare estimate: LKR ${q.base} base + LKR ${q.perKm} per km (minimum LKR ${q.min}).</span>`;
 }
 async function ambulance() {
-  const r = await api('/api/ambulance', { appointmentId: appt.id, pickupTown: $('amb-from').value, hospitalId: $('amb-to').value });
+  const r = await api('/api/ambulance', { appointmentId: appt.id, address: patient.address, hospitalId: appt.hospitalId });
   $('amb-out').innerHTML = r.error ? `<span class="banner bad">${esc(r.error)}</span>` : `<div class="banner ok">Ambulance booked (${esc(r.id)}). ${r.payment.status === 'PAID' ? 'Paid' : 'Payment ' + esc(r.payment.status.toLowerCase())}: LKR ${r.payment.amountLkr} via ${esc(r.payment.provider)}.${r.payment.redirectUrl ? ` <a href="${esc(r.payment.redirectUrl)}" target="_blank">Open payment page</a>` : ''}</div>`;
 }
 async function loadRx() {
@@ -200,9 +207,9 @@ async function loadRx() {
     `<div class="vc" style="margin-top:10px"><b>Prescription ${esc(r.id)}</b> <span class="tag ${r.status === 'ISSUED' ? 'ok' : 'warn'}">${esc(r.status)}</span><br>` +
     `<img src="${r.qr}" alt="QR"><br>` +
     r.subject.medicines.map((m) => `${esc(m.name)} ${esc(m.dose || '')} ${esc(m.days ? 'x ' + m.days + ' days' : '')}`).join('<br>') +
-    `<br><span class="sim">Signed: ${esc(r.signature.method)} · ${esc(r.signature.signer)}</span>` +
+    `<br><span class="sim">Signed: ${esc(r.signature.method)} · ${esc(r.signature.signer)}, ${esc(r.signature.speciality || '')}, ${esc(r.signature.slmcRegNo || '')}</span>` +
     `<div class="token" id="rtok-${r.id}">${esc(r.credential)}</div>` +
-    `<button onclick="shareIt('${r.id}', this)">Show at pharmacy</button> <button class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('rtok-${r.id}').textContent)">Copy prescription</button></div>`).join('')
+    `<button onclick="shareIt('${r.id}', this)">Show at pharmacy</button> <button class="secondary" onclick="copyText(document.getElementById('rtok-${r.id}').textContent, this)">Copy prescription</button></div>`).join('')
     : '<p class="muted">No prescriptions yet.</p>';
 }
 </script>

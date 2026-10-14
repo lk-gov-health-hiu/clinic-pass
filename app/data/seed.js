@@ -24,9 +24,9 @@ const towns = [
 
 // slots: simple labels per day; capacity tracked at runtime
 const hospitals = [
-  { id: 'h1', name: 'Colombo North Teaching Hospital (simulated)', town: 'colombo', distanceKm: 4.2, specialties: ['cardiology', 'endocrinology', 'neurology', 'nephrology', 'general-medicine'] },
-  { id: 'h2', name: 'Ragama Base Hospital (simulated)', town: 'ragama', distanceKm: 9.8, specialties: ['ophthalmology', 'orthopaedics', 'endocrinology', 'general-medicine'] },
-  { id: 'h3', name: 'Kandy Provincial Hospital (simulated)', town: 'kandy', distanceKm: 112, specialties: ['cardiology', 'ophthalmology', 'neurology', 'orthopaedics', 'nephrology', 'general-medicine'] },
+  { id: 'h1', name: 'Colombo North Teaching Hospital (simulated)', address: 'Colombo North Teaching Hospital, Main Road, Colombo (simulated address)', town: 'colombo', distanceKm: 4.2, specialties: ['cardiology', 'endocrinology', 'neurology', 'nephrology', 'general-medicine'] },
+  { id: 'h2', name: 'Ragama Base Hospital (simulated)', address: 'Ragama Base Hospital, Hospital Road, Ragama (simulated address)', town: 'ragama', distanceKm: 9.8, specialties: ['ophthalmology', 'orthopaedics', 'endocrinology', 'general-medicine'] },
+  { id: 'h3', name: 'Kandy Provincial Hospital (simulated)', address: 'Kandy Provincial Hospital, Hospital Road, Kandy (simulated address)', town: 'kandy', distanceKm: 112, specialties: ['cardiology', 'ophthalmology', 'neurology', 'orthopaedics', 'nephrology', 'general-medicine'] },
 ];
 
 const slotTimes = ['08:30', '09:00', '09:30', '10:00', '10:30', '11:00'];
@@ -58,4 +58,10 @@ const records = {
   },
 };
 
-module.exports = { specialties, towns, hospitals, slotTimes, patients, records };
+// Doctors: the signer must be a SLUDI test citizen. This one mirrors a record in the sandbox Citizen Collection
+// (rec_5ff6c97d604a, Sunil A. Fernando, UIN 9876543212). The collection has no SLMC or speciality fields, so those are kept here. SLMC number is NOT real.
+const doctors = [
+  { sludiId: '9876543212', name: 'Dr. Sunil A. Fernando', slmcRegNo: 'SLMC 00000 (demo)', collectionRecord: 'rec_5ff6c97d604a' },
+];
+
+module.exports = { specialties, towns, hospitals, slotTimes, patients, records, doctors };

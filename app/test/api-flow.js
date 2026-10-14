@@ -32,6 +32,10 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
 
   check('tampered pass rejected', (await post('/api/verify/appointment', { token: a.credential.slice(0, -3) + 'abc' })).valid === false);
   check('genuine pass verifies', (await post('/api/verify/appointment', { token: a.credential })).valid === true);
+  const w = await fetch(`${BASE}/api/appointments/${a.id}/wallet`).then((r) => r.json());
+  const o = w.genericObject || {}, mods = (o.textModulesData || []).map((m) => m.id);
+  check('wallet pass has holder name, title, QR barcode and details', !!(o.header && o.header.defaultValue.value) && !!o.cardTitle && o.barcode && o.barcode.value === a.credential && ['hospital', 'address', 'when', 'phn', 'appt', 'type'].every((m) => mods.includes(m)), `(${o.header && o.header.defaultValue.value})`);
+  check('pass credential carries name, NIC, PHN and hospital address', (() => { const c = JSON.parse(Buffer.from(a.credential.split('.')[0], 'base64url')).subject; return c.name && c.nic && c.phn && c.hospitalAddress; })());
   check('record locked before registration', (await fetch(`${BASE}/api/appointments/${a.id}/record`)).status === 403);
   await post(`/api/appointments/${a.id}/register`, {});
   check('record released after registration (consent)', (await fetch(`${BASE}/api/appointments/${a.id}/record`)).status === 200);
@@ -39,6 +43,8 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
   const quote = (town, h) => fetch(`${BASE}/api/ambulance/quote?pickupTown=${town}&hospitalId=${h}`).then((r) => r.json());
   const near = await quote('ragama', 'h2'), mid = await quote('ragama', 'h1'), far = await quote('ragama', 'h3');
   check('ambulance fare rises with distance', near.fareLkr < mid.fareLkr && mid.fareLkr < far.fareLkr, `(LKR ${near.fareLkr} / ${mid.fareLkr} / ${far.fareLkr})`);
+  const byAddr = await fetch(`${BASE}/api/ambulance/quote?address=${encodeURIComponent('10, MAIN STREET, LANE 1, COLOMBO')}&hospitalId=h3`).then((r) => r.json());
+  check('ambulance pickup taken from the profile address', byAddr.from === 'Colombo' && byAddr.to === 'Kandy', `(${byAddr.from} to ${byAddr.to})`);
   check('ambulance fare changes with pickup address', (await quote('galle', 'h2')).fareLkr !== near.fareLkr);
   const amb = await post('/api/ambulance', { appointmentId: a.id, pickupTown: 'ragama', hospitalId: 'h3', amountLkr: 1 });
   check('ambulance charged the server-side fare', amb.payment.amountLkr === far.fareLkr, `(LKR ${amb.payment.amountLkr})`);
@@ -47,6 +53,7 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
   const visit = await post(`/api/appointments/${a.id}/visit`, { diagnosis: 'Test', notes: '', medicines: [{ name: 'Test drops', dose: 'qid', days: 7 }] });
   const rx = visit.prescription;
   check('prescription issued and signed', !!rx && rx.signature.method.startsWith('Digi-Sign'));
+  check('Digi-Sign carries doctor name, SLMC number and speciality', !!rx && !!rx.signature.signer && /SLMC/.test(rx.signature.slmcRegNo) && !!rx.signature.speciality && rx.signature.sludiId === '9876543212');
   check('pharmacy verifies prescription', (await post('/api/verify/prescription', { token: rx.credential })).valid === true);
   await post(`/api/prescriptions/${rx.id}/dispense`, {});
   const again = await post('/api/verify/prescription', { token: rx.credential });

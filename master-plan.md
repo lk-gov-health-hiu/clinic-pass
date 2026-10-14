@@ -24,7 +24,7 @@ Repository: https://github.com/lk-gov-health-hiu/clinic-pass (MIT).
 | Ambulance fare estimate | **Simulated** tariff: LKR 1,500 base + LKR 100/km (straight-line km x 1.3, min LKR 2,000) between simulated towns; server recomputes it and sends it to the real payment call | `ambulanceQuote()`, `towns` in `app/data/seed.js` |
 | Armed forces / health worker priority | Simulated NDX registry check (`demoPriorityAll`) | `/api/priority/verify` |
 | Appointment and prescription credentials | **Simulated**: HMAC-signed JSON + QR (real VC issuance needs manual activation by sandbox ops) | `issueCredential()` |
-| Digi-Sign signature on prescription | Simulated (no API published; portal flow only) | `digiSign()` |
+| Digi-Sign signature on prescription | Simulated fallback. A Digital Signature API (CSC v2) is now in the catalogue and subscribed, but every call returns 404 "No active playground template" (2026-10-14): ask sandbox ops to activate it. Signer = SLUDI test citizen (doctor in `seed.doctors`, mirrors Citizen Collection record `rec_5ff6c97d604a`); SLMC number and speciality are simulated. Real path (authorize + signHash) is coded, gated on `doctorEkyc` in config.json, UNTESTED | `digiSign()` |
 | Hospital directory, slots, health record (by PHN), ambulance booking | Simulated "hospital system", labelled in the UI | `app/data/seed.js` |
 | NDX data exchange | Not used yet (hosts did not resolve from our network) | none |
 
@@ -66,6 +66,8 @@ Secrets (never commit): `app/config.json` (Anthropic key, DIS client id and API 
 8. **Medical safety**: the triage assistant gives guidance only; add a clinician-review note and keep the emergency warning. Never send real patient data to an external API.
 
 ## 4. Gotchas learned (save yourself time)
+- **IPG checkout link says "Transaction not found (404)"**: initiate via the Payment Gateway API base `.../payment-gateway/v1.0.0`; the Payment Platform API creates sessions the checkout page cannot see.
+- **Demo video tooling** (`tmp/demo-video/`, adapted from the hmis demo-video skill): edge-tts 403 means `pip install -U edge-tts`; Playwright video needs the matching `ffmpeg-<n>` build, so use a playwright-core whose ffmpeg is installed (hmis `tmp/demo-videos`, ffmpeg-1011).
 
 - **Restarting the server clears login sessions.** Anyone signed in must sign in again. After editing `server.js`, restart: `taskkill //F //IM node.exe` (Git Bash on Windows) then `npm start`.
 - **Anthropic API**: forced `tool_choice` is rejected by the current models; the code uses `auto` and the system prompt demands the tool. Haiku sometimes leaves `reason` empty (the server fills a default). Model is set in `config.json` (`claude-haiku-5-5` for rehearsal, `claude-sonnet-5-5` for the demo).
@@ -82,6 +84,9 @@ Secrets (never commit): `app/config.json` (Anthropic key, DIS client id and API 
 | When (14 Oct 2026) | Decision | Why |
 |---|---|---|
 | Afternoon, late | Ambulance price preview: pickup and hospital dropdowns re-quote the fare before booking (replaces the flat LKR 2,500); no "demo only" labels in the UI, fare note says simulated | User request, to show price changing with addresses |
+| Afternoon, late (2) | Ambulance pickup is no longer chosen by the patient: it comes from the SLUDI profile address (matched to a known town by name) and the destination is the booked hospital; both shown read-only, fare quoted automatically. API still accepts `pickupTown` for tests. If the address matches no town the UI says so. Note: simulated patient K. A. Perera lives in Ragama, so a Ragama booking quotes the LKR 2,000 minimum (0 km) | User: patient address is known from SLUDI/pensioner check and the hospital has its own address, so no entry needed |
+| Afternoon, late (3) | Appointment pass now shows the patient's name, PHN, reference, hospital and hospital address; credential subject adds NIC, hospitalId, hospitalAddress; hospitals in `seed.js` have simulated addresses. New `GET /api/appointments/:id/wallet` returns an **unsigned, simulated** Google Wallet Generic pass object (holder name, title, QR barcode = credential, hospital, address, date/time, PHN, ID, type, location). A real Add to Google Wallet needs an issuer account (`googleWalletIssuerId` in config) and a service-account-signed JWT: **open question, ask how the user adds the pass today** | User: name missing when the pass is put in Google Wallet; include all fields Wallet needs |
+| Afternoon, late (4) | Payment now initiated through the **Payment Gateway** API (`/payment-gateway/v1.0.0`), not Payment Platform API: the checkout page (`ipg.dis.int.govtech.lk`) looks transactions up in the Gateway's store, so Platform-API links showed "Transaction not found (404)". Copy pass / Copy prescription now copy via `execCommand` first (works on LAN http, shows "Copied"); `navigator.clipboard` alone fails on non-https hosts | User bug reports |
 | Afternoon, late | Repo published as `lk-gov-health-hiu/clinic-pass` under MIT; workshop recordings, slide images and downloaded reference PDFs excluded; secrets git-ignored; tests added (`app/test`) | Open source for reuse by the Health Informatics Unit and others |
 | Afternoon, late | Pensioner priority uses **only** the Pensioner Status Verification API; SLUDI age check and demo override removed for pensioners. Registry rows added to the API's Playground tables to match SLUDI's name/address | User instruction: verify with the pensioner registry, not age |
 | Afternoon | Slot picker: next 5 priority and 5 normal slots, priority needs a verified category (pensioner / armed forces / health worker) | User requirement |
@@ -115,3 +120,8 @@ Registration 08:30; sprints 09:45-10:30, 10:50-13:00, 14:15-15:30; demo session 
 | `docs/brief.md`, `docs/proposal.md`, `docs/spec.md` | Brief, early proposal, spec drafts |
 | `docs/reference-devportal-docs.md`, `docs/reference-sludi-ndx.md` | Digests of the developer portal docs and webinars |
 | `docs/screenshots/` | Screenshots of the working app |
+
+## Update 2026-10-14 (hospital app)
+- Counter rejects a pass for another hospital (it was registering it, so the clinician queue for the selected hospital looked empty). Register call checks `hospitalId`.
+- Copy button on the issued prescription (Clinician tab). Digi-Sign now carries doctor name, SLMC number (simulated), speciality, SLUDI ID.
+- Open: ask sandbox ops to activate the Digital Signature API; the doctor must sign in with SLUDI (UIN + OTP entered by the user) to get the eKYC; add a hospital redirect URI to the SLUDI client; call `/dss/v1/validate` at the pharmacy.

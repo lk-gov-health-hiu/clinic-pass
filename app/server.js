@@ -51,16 +51,29 @@ const livePatients = [];
 const findPatient = (sludiId) => livePatients.find((p) => p.sludiId === sludiId) || seed.patients.find((p) => p.sludiId === sludiId);
 const sludiLogin = (nic) => seed.patients.find((p) => p.nic === nic) || seed.patients[0]; // Login with SLUDI + eKYC
 const ndxIsPensioner = (patient) => !!patient.pensioner;                                   // NDX pensioner status check
-const digiSign = (rxPayload, clinician) => ({                                              // Digi-Sign (portal flow has no API)
-  signer: clinician,
-  method: 'Digi-Sign (simulated)',
-  signedAt: new Date().toISOString(),
-  digest: crypto.createHash('sha256').update(JSON.stringify(rxPayload)).digest('hex'),
-});
+// Digi-Sign: real Digital Signature API (CSC v2, sandbox) when it is live and the doctor's SLUDI eKYC is configured;
+// otherwise a labelled simulation. The signer is a SLUDI citizen (doctor details come from seed.doctors, mirroring the Citizen Collection).
+const DIGISIGN_BASE = () => config.digiSignBase || 'https://api.staging.devportal.gov.lk/digital-signature/v1.0.0';
+async function digiSign(rxPayload, doctor, speciality) {
+  const hash = crypto.createHash('sha256').update(JSON.stringify(rxPayload));
+  const sig = { signer: doctor.name, slmcRegNo: doctor.slmcRegNo, speciality, sludiId: doctor.sludiId, collectionRecord: doctor.collectionRecord,
+    signedAt: new Date().toISOString(), digest: hash.copy().digest('hex') };
+  if (config.disClientId && config.disApiKey && config.doctorEkyc) {   // doctorEkyc: signed eKYC JWS from the doctor's SLUDI login (short-lived; UNTESTED until the API is activated)
+    try {
+      const h = { 'content-type': 'application/json', 'X-DIS-CLIENT-ID': config.disClientId, 'X-DIS-API-KEY': config.disApiKey };
+      const call = async (p, body) => { const r = await fetch(DIGISIGN_BASE() + p, { method: 'POST', headers: h, body: JSON.stringify(body) }); const j = await r.json(); if (!r.ok) throw new Error(j.error_description || j.error || r.status); return j; };
+      const credentialID = `sludi:${doctor.sludiId}`, hashes = [hash.copy().digest('base64')];
+      const a = await call('/csc/v2/credentials/authorize', { credentialID, numSignatures: 1, hash: hashes, ekyc: config.doctorEkyc, acr: 'mosip:idp:acr:generated-code', OTP: '111111' });
+      const s = await call('/csc/v2/signatures/signHash', { credentialID, SAD: a.SAD, hash: hashes, signAlgo: '1.2.840.113549.1.1.11' });
+      return { ...sig, method: 'Digi-Sign API (sandbox)', jws: s.signatures[0], x5c: s.x5c, transactionId: s.transactionId, signedAt: s.signingTime || sig.signedAt };
+    } catch (e) { console.error('Digi-Sign API failed, using simulation:', e.message); }
+  }
+  return { ...sig, method: 'Digi-Sign (simulated)' };
+}
 // Payments: real call to the Payment Platform API (IPG simulator) when DIS credentials are in config.json;
 // falls back to a labelled simulation if the call fails (same pattern as Day 1).
 async function govPayCharge(amountLkr, ref, who) {
-  const base = config.paymentsBaseUrl || 'https://api.staging.devportal.gov.lk/payment-platform-api/v1.0.0';
+  const base = config.paymentsBaseUrl || 'https://api.staging.devportal.gov.lk/payment-gateway/v1.0.0'  // Payment Gateway API: its transaction store backs the checkout page (Payment Platform API links 404);
   if (config.disClientId && config.disApiKey) {
     try {
       const r = await fetch(`${base}/api/sandbox/initiate`, {
@@ -388,17 +401,45 @@ app.post('/api/appointments', async (req, res) => {
 
   const appt = {
     id: nextId('APT'), sludiId, patientName: patient.name, nic: patient.nic, phn: patient.phn,
-    hospitalId, hospitalName: hospital.name, specialty, specialtyName: specialtyName(specialty),
+    hospitalId, hospitalName: hospital.name, hospitalAddress: hospital.address, specialty, specialtyName: specialtyName(specialty),
     date, time, slotType: type, priority: type === 'priority', priorityCategory: priorityInfo ? priorityInfo.label : null, priorityMethod: priorityInfo ? priorityInfo.method : null,
     consentRecord: !!consentRecord, triage: triage || null, status: 'BOOKED', createdAt: new Date().toISOString(),
   };
   appt.credential = issueCredential(
     'ClinicAppointmentCredential',
-    { appointmentId: appt.id, name: patient.name, phn: patient.phn, hospital: hospital.name, specialty: appt.specialtyName, date, time, slotType: type, priorityCategory: appt.priorityCategory },
+    { appointmentId: appt.id, name: patient.name, nic: patient.nic, phn: patient.phn, hospitalId, hospital: hospital.name, hospitalAddress: hospital.address, specialty: appt.specialtyName, date, time, slotType: type, priorityCategory: appt.priorityCategory },
     'Clinic Pass hospital system (simulated issuer)', 'appointment'
   );
   state.appointments.push(appt); save();
   res.json({ appointment: appt, qr: await qr(appt.credential) });
+});
+
+// Google Wallet "Generic" pass object for an appointment. UNSIGNED: a real "Add to Google Wallet" link needs a
+// Google Wallet issuer account (config.googleWalletIssuerId) and a service-account-signed JWT; not available yet.
+app.get('/api/appointments/:id/wallet', (req, res) => {
+  const a = find(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Appointment not found' });
+  const issuer = config.googleWalletIssuerId || 'ISSUER_ID_NOT_CONFIGURED';
+  const h = hospitalById(a.hospitalId), t = h && townById(h.town);
+  res.json({ simulated: true, signed: false, note: 'Unsigned pass object. Needs a Google Wallet issuer account and a signed JWT to be added for real.',
+    genericClass: { id: `${issuer}.clinic_pass_appointment` },
+    genericObject: {
+      id: `${issuer}.${a.id}`, classId: `${issuer}.clinic_pass_appointment`, state: 'ACTIVE',
+      cardTitle: { defaultValue: { language: 'en', value: 'Clinic Pass' } },
+      header: { defaultValue: { language: 'en', value: a.patientName } },
+      subheader: { defaultValue: { language: 'en', value: `${a.specialtyName} clinic` } },
+      textModulesData: [
+        { id: 'hospital', header: 'Hospital', body: a.hospitalName },
+        { id: 'address', header: 'Address', body: a.hospitalAddress || '' },
+        { id: 'when', header: 'Date and time', body: `${a.date} at ${a.time}` },
+        { id: 'phn', header: 'PHN', body: a.phn || '' },
+        { id: 'appt', header: 'Appointment ID', body: a.id },
+        { id: 'type', header: 'Type', body: a.priority ? `Priority: ${a.priorityCategory}` : 'Normal appointment' },
+      ],
+      barcode: { type: 'QR_CODE', value: a.credential, alternateText: a.id },
+      locations: t ? [{ latitude: t.lat, longitude: t.lon }] : [],
+      hexBackgroundColor: '#1d4ea1',
+    } });
 });
 
 app.get('/api/appointments/mine/:sludiId', (req, res) => {
@@ -408,6 +449,8 @@ app.get('/api/appointments/mine/:sludiId', (req, res) => {
 // Ambulance (value-added) + GovPay. Fare estimate is a simulated tariff.
 const AMB_BASE = 1500, AMB_PER_KM = 100, AMB_MIN = 2000, ROAD_FACTOR = 1.3;
 const townById = (id) => seed.towns.find((t) => t.id === id);
+// The pickup is the patient's profile address (SLUDI), matched to a known town by name.
+const townFromAddress = (addr) => { const a = String(addr || '').toLowerCase(); return seed.towns.find((t) => a.includes(t.name.toLowerCase())); };
 function ambulanceQuote(pickupTownId, hospitalId) {
   const from = townById(pickupTownId), hospital = hospitalById(hospitalId), to = hospital && townById(hospital.town);
   if (!from || !to) return null;
@@ -418,8 +461,9 @@ function ambulanceQuote(pickupTownId, hospitalId) {
   return { from: from.name, to: to.name, hospital: hospital.name, km, fareLkr, base: AMB_BASE, perKm: AMB_PER_KM, min: AMB_MIN, simulated: true };
 }
 app.get('/api/ambulance/quote', (req, res) => {
-  const q = ambulanceQuote(req.query.pickupTown, req.query.hospitalId);
-  q ? res.json(q) : res.status(400).json({ error: 'Unknown pickup town or hospital' });
+  const town = req.query.address ? (townFromAddress(req.query.address) || {}).id : req.query.pickupTown;
+  const q = ambulanceQuote(town, req.query.hospitalId);
+  q ? res.json(q) : res.status(400).json({ error: 'We could not place your profile address near a known town' });
 });
 app.get('/api/ambulance/options', (req, res) => {
   res.json({ towns: seed.towns.map((t) => ({ id: t.id, name: t.name })), hospitals: seed.hospitals.map((h) => ({ id: h.id, name: h.name })) });
@@ -427,8 +471,9 @@ app.get('/api/ambulance/options', (req, res) => {
 app.post('/api/ambulance', async (req, res) => {
   const appt = find(req.body.appointmentId);
   if (!appt) return res.status(404).json({ error: 'Appointment not found' });
-  const quote = ambulanceQuote(req.body.pickupTown || 'colombo', req.body.hospitalId || appt.hospitalId);
-  if (!quote) return res.status(400).json({ error: 'Unknown pickup town or hospital' });
+  const town = req.body.address ? (townFromAddress(req.body.address) || {}).id : (req.body.pickupTown || 'colombo');
+  const quote = ambulanceQuote(town, req.body.hospitalId || appt.hospitalId);
+  if (!quote) return res.status(400).json({ error: 'We could not place your profile address near a known town' });
   const booking = { id: nextId('AMB'), appointmentId: appt.id, pickup: quote.from, to: quote.hospital, km: quote.km,
     payment: await govPayCharge(quote.fareLkr, appt.id, (appt.patientName || '').split(' ')[0]) };
   state.ambulances.push(booking); save();
@@ -451,6 +496,7 @@ app.post('/api/verify/appointment', (req, res) => {
 app.post('/api/appointments/:id/register', (req, res) => {
   const a = find(req.params.id);
   if (!a) return res.status(404).json({ error: 'Not found' });
+  if (req.body.hospitalId && req.body.hospitalId !== a.hospitalId) return res.status(409).json({ error: `This appointment is for ${a.hospitalName}` });
   a.status = 'REGISTERED'; a.registeredAt = new Date().toISOString(); save();
   res.json(a);
 });
@@ -467,12 +513,12 @@ app.get('/api/appointments/:id/record', (req, res) => {
 app.post('/api/appointments/:id/visit', async (req, res) => {
   const a = find(req.params.id);
   if (!a) return res.status(404).json({ error: 'Not found' });
-  const { diagnosis, notes, medicines, clinician } = req.body;
+  const { diagnosis, notes, medicines } = req.body;
   const meds = (medicines || []).filter((m) => m.name);
   const rxId = nextId('RX');
   const subject = { prescriptionId: rxId, patient: a.patientName, phn: a.phn, hospital: a.hospitalName, specialty: a.specialtyName,
     date: new Date().toISOString().slice(0, 10), diagnosis, medicines: meds, payment: 'None (free of charge)' };
-  const signature = digiSign(subject, clinician || 'Dr. (demo clinician)');
+  const signature = await digiSign(subject, seed.doctors[0], a.specialtyName);
   const rx = { id: rxId, appointmentId: a.id, status: 'ISSUED', subject, signature };
   rx.credential = issueCredential('PrescriptionCredential', { ...subject, signature }, 'Clinic Pass hospital system (simulated issuer)', 'prescription');
   state.prescriptions.push(rx);
