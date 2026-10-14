@@ -28,8 +28,8 @@
 </section>
 
 <section id="s-triage" class="card hidden">
-  <h2>3. What is the problem?</h2>
-  <p class="muted">Describe your new health problem. The assistant suggests the right clinic. It gives guidance, not a diagnosis.</p>
+  <h2>3. What is the problem? <span class="ai-badge">AI assistant</span></h2>
+  <div class="banner warn"><b>This step uses artificial intelligence (AI).</b> Your description is sent to an AI model, which suggests the right clinic. It gives guidance, not a diagnosis, and it can make mistakes. Do not enter your name or NIC. A clinician will review it.</div>
   <textarea id="problem" placeholder="e.g. My vision has been blurry for two weeks and I get headaches"></textarea>
   <button onclick="triage()">Find the right clinic</button>
   <div id="triage-out"></div>
@@ -120,7 +120,7 @@ async function triage() {
   const urgent = r.urgency === 'emergency';
   $('triage-out').innerHTML =
     (urgent ? '<div class="banner bad"><b>This may be an emergency.</b> Please go to the nearest emergency department or call 1990 now.</div>' : '') +
-    `<div class="banner ok">Suggested clinic: <b>${esc(r.specialtyName)}</b><br>${esc(r.reason)}</div>` +
+    `<div class="banner ok">${r.source === 'keyword-fallback' ? '<span class="ai-badge">Keyword matching, not AI</span>' : '<span class="ai-badge">AI suggestion</span>'}<br>Suggested clinic: <b>${esc(r.specialtyName)}</b><br>${esc(r.reason)}</div>` +
     `<p class="sim">Source: ${esc(r.source)}${r.note ? ' · ' + esc(r.note) : ''}</p>`;
   $('hospitals').innerHTML = r.hospitals.map((h) => `<div class="hospital" onclick="chooseHospital('${h.id}')"><b>${esc(h.name)}</b><br><span class="muted">${h.distanceKm} km away</span></div>`).join('');
   show('s-book');

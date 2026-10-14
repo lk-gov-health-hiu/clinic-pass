@@ -8,6 +8,7 @@ let failed = 0;
 const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name} ${extra}`); if (!ok) failed++; };
 
 (async () => {
+  const saved = await (await fetch(BASE + '/api/snapshot')).json();   // put the live data back at the end
   await post('/api/reset', {});
   const { patient } = await post('/api/sludi/login', { nic: '195212345V' });
   check('PHN accepted (tolerant format)', (await post('/api/phn', { sludiId: patient.sludiId, phn: 'phn 0001 2345' })).ok === true);
@@ -59,7 +60,7 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
   const again = await post('/api/verify/prescription', { token: rx.credential });
   check('dispensed prescription refused', again.valid === false, `(${again.reason})`);
 
-  await post('/api/reset', {});
+  await post('/api/restore', saved);
   console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed');
   process.exit(failed ? 1 : 0);
 })().catch((e) => { console.error('ERROR', e.message); process.exit(1); });

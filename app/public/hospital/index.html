@@ -131,7 +131,7 @@ async function openVisit(id) {
   $('visit').classList.remove('hidden');
   const t = a.triage;
   $('rec').innerHTML = `<p><b>${esc(a.patientName)}</b> · PHN ${esc(a.phn)}</p>` +
-    (t ? `<div class="banner warn"><b>Patient's own description (AI triage summary):</b> ${esc((t.symptoms || []).join('; '))}${t.duration ? ' · duration: ' + esc(t.duration) : ''}${(t.redFlags || []).length ? '<br><b>Red flags:</b> ' + esc(t.redFlags.join('; ')) : ''}</div>` : '') +
+    (t ? `<div class="banner warn"><span class="ai-badge">AI</span> <b>Patient's own description (AI triage summary, for the clinician to confirm):</b> ${esc((t.symptoms || []).join('; '))}${t.duration ? ' · duration: ' + esc(t.duration) : ''}${(t.redFlags || []).length ? '<br><b>Red flags:</b> ' + esc(t.redFlags.join('; ')) : ''}</div>` : '') +
     (r.error ? `<div class="banner bad">${esc(r.error)}</div>` :
       `<p><b>Conditions:</b> ${r.record.conditions.map(esc).join('; ')}<br><b>Allergies:</b> ${r.record.allergies.map(esc).join('; ')}<br><b>Regular medicines:</b> ${r.record.regularMedicines.map(esc).join('; ')}</p>` +
       '<table><tr><th>Date</th><th>Clinic</th><th>Note</th></tr>' + r.record.visits.map((v) => `<tr><td>${esc(v.date)}</td><td>${esc(v.clinic)}</td><td>${esc(v.note)}</td></tr>`).join('') + '</table>' +

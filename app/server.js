@@ -568,7 +568,9 @@ app.get('/api/shared/prescription', (req, res) => {
   list.length ? res.json({ token: list[0].credential }) : res.status(404).json({ error: 'No prescription has been shown by a patient yet' });
 });
 
-// Demo helper
+// Demo helpers: the tests save the live data, clear it, then put it back (so they never lose real appointments)
+app.get('/api/snapshot', (req, res) => res.json(state));
+app.post('/api/restore', (req, res) => { state = { ...state, ...req.body }; save(); res.json({ ok: true }); });
 app.post('/api/reset', (req, res) => { state = { appointments: [], prescriptions: [], ambulances: [], priority: {}, seq: 1 }; save(); res.json({ ok: true }); });
 
 app.listen(config.port, () => {

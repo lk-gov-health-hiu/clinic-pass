@@ -12,6 +12,7 @@ fs.mkdirSync(OUT, { recursive: true });
 (async () => {
   const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrome', headless: true });
   const errs = [];
+  const saved = await (await fetch(BASE + '/api/snapshot')).json();   // put the live data back at the end
   await fetch(BASE + '/api/reset', { method: 'POST' });
 
   const pat = await (await browser.newContext({ viewport: { width: 430, height: 900 } })).newPage();
@@ -61,6 +62,6 @@ fs.mkdirSync(OUT, { recursive: true });
 
   console.log(errs.length ? 'PAGE ERRORS: ' + errs.join(' | ') : 'UI flow passed, no page errors. Screenshots in tmp/');
   await browser.close();
-  await fetch(BASE + '/api/reset', { method: 'POST' });
+  await fetch(BASE + '/api/restore', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(saved) });
   process.exit(errs.length ? 1 : 0);
 })().catch((e) => { console.error('FAIL', e.message); process.exit(1); });

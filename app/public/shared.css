@@ -18,6 +18,7 @@ button:disabled { opacity:.5; cursor:default; }
 .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:13px; font-weight:600; background:#e6eef8; color:var(--brand); margin-right:6px; }
 .tag.ok { background:#dff3e8; color:var(--ok); } .tag.warn { background:#fdf0d8; color:var(--warn); } .tag.bad { background:#fbe3e1; color:var(--bad); }
 .muted { color:var(--muted); font-size:14px; }
+.ai-badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:13px; font-weight:600; background:#efe6fb; color:#5b2a9e; vertical-align:middle; }
 .sim { font-size:12px; color:var(--muted); font-style:italic; }
 .banner { padding:10px 12px; border-radius:8px; margin:8px 0; }
 .banner.ok { background:#dff3e8; color:var(--ok); } .banner.bad { background:#fbe3e1; color:var(--bad); } .banner.warn { background:#fdf0d8; color:var(--warn); }
