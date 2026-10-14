@@ -4,7 +4,7 @@ Two front-ends on one Node/Express server.
 
 | URL | App |
 |---|---|
-| `/patient/` | Patient (phone-sized): SLUDI login, PHN, AI triage, hospital, appointment slots, priority verification, pass, ambulance, prescriptions |
+| `/patient/` | Patient (phone-sized): SLUDI login, PHN, AI triage, hospital, appointment slots, priority verification, pass, ambulance (fare preview by pickup town and hospital), prescriptions |
 | `/hospital/` | Hospital: Registration counter, Clinician, Pharmacy (hospital selector top right) |
 
 ## Setup
@@ -39,7 +39,7 @@ npm test             # API journey (server must be running); prints PASS/FAIL pe
 npm run test:ui      # Playwright browser journey with screenshots in ../tmp/
 ```
 
-`npm test` covers: PHN check, triage, slots, priority refusal before verification, pensioner registry check, booking and double booking, tampered pass, consent-gated record, ambulance payment, signed prescription, one-time dispensing.
+`npm test` covers: PHN check, triage, slots, priority refusal before verification, pensioner registry check, booking and double booking, tampered pass, consent-gated record, ambulance fare by distance and server-side charge, ambulance payment, signed prescription, one-time dispensing.
 
 ## Layout
 

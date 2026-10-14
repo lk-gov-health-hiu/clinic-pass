@@ -168,14 +168,30 @@ async function bookSlot(type, i) {
     `<p class="muted">Show this at the registration counter. For the demo, copy the pass text:</p>` +
     `<div class="token" id="tok">${esc(appt.credential)}</div>` +
     `<button onclick="shareIt('${appt.id}', this)">Show at registration counter</button> <button class="secondary" onclick="copyTok()">Copy pass</button></div>`;
-  $('amb-box').innerHTML = `<h2 style="margin-top:14px">Need an ambulance?</h2><p class="muted">Value-added service, paid through GovPay (LKR 2,500).</p><button class="secondary" onclick="ambulance()">Book ambulance</button><div id="amb-out"></div>`;
+  await initAmbulance();
   show('s-pass'); show('s-rx');
   $('s-pass').scrollIntoView({ behavior: 'smooth' });
 }
 async function shareIt(id, btn) { await api('/api/share', { id }); btn.textContent = 'Shown. The staff can now read it.'; btn.disabled = true; }
 function copyTok() { navigator.clipboard.writeText($('tok').textContent); }
+async function initAmbulance() {
+  const o = await (await fetch('/api/ambulance/options')).json();
+  const addr = (patient.address || '').toLowerCase();
+  const home = (o.towns.find((t) => addr.includes(t.name.toLowerCase())) || o.towns[0]).id;
+  const opts = (list, sel) => list.map((x) => `<option value="${esc(x.id)}"${x.id === sel ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+  $('amb-box').innerHTML = `<h2 style="margin-top:14px">Need an ambulance?</h2><p class="muted">Value-added service, paid through GovPay.</p>` +
+    `<label>Pickup address<select id="amb-from" onchange="quoteAmbulance()">${opts(o.towns, home)}</select></label>` +
+    `<label>Hospital<select id="amb-to" onchange="quoteAmbulance()">${opts(o.hospitals, appt.hospitalId)}</select></label>` +
+    `<div id="amb-quote" class="banner"></div><button class="secondary" onclick="ambulance()">Book ambulance</button><div id="amb-out"></div>`;
+  await quoteAmbulance();
+}
+async function quoteAmbulance() {
+  const q = await (await fetch(`/api/ambulance/quote?pickupTown=${$('amb-from').value}&hospitalId=${$('amb-to').value}`)).json();
+  $('amb-quote').innerHTML = q.error ? esc(q.error) :
+    `<b>LKR ${q.fareLkr.toLocaleString()}</b> · about ${q.km} km, ${esc(q.from)} to ${esc(q.to)}<br><span class="sim">Simulated fare estimate: LKR ${q.base} base + LKR ${q.perKm} per km (minimum LKR ${q.min}).</span>`;
+}
 async function ambulance() {
-  const r = await api('/api/ambulance', { appointmentId: appt.id, pickup: patient.address });
+  const r = await api('/api/ambulance', { appointmentId: appt.id, pickupTown: $('amb-from').value, hospitalId: $('amb-to').value });
   $('amb-out').innerHTML = r.error ? `<span class="banner bad">${esc(r.error)}</span>` : `<div class="banner ok">Ambulance booked (${esc(r.id)}). ${r.payment.status === 'PAID' ? 'Paid' : 'Payment ' + esc(r.payment.status.toLowerCase())}: LKR ${r.payment.amountLkr} via ${esc(r.payment.provider)}.${r.payment.redirectUrl ? ` <a href="${esc(r.payment.redirectUrl)}" target="_blank">Open payment page</a>` : ''}</div>`;
 }
 async function loadRx() {

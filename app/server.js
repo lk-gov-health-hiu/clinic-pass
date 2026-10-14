@@ -405,12 +405,32 @@ app.get('/api/appointments/mine/:sludiId', (req, res) => {
   res.json(state.appointments.filter((a) => a.sludiId === req.params.sludiId));
 });
 
-// Ambulance (value-added) + GovPay (simulated)
+// Ambulance (value-added) + GovPay. Fare estimate is a simulated tariff.
+const AMB_BASE = 1500, AMB_PER_KM = 100, AMB_MIN = 2000, ROAD_FACTOR = 1.3;
+const townById = (id) => seed.towns.find((t) => t.id === id);
+function ambulanceQuote(pickupTownId, hospitalId) {
+  const from = townById(pickupTownId), hospital = hospitalById(hospitalId), to = hospital && townById(hospital.town);
+  if (!from || !to) return null;
+  const rad = (d) => (d * Math.PI) / 180;
+  const a = Math.sin(rad(to.lat - from.lat) / 2) ** 2 + Math.cos(rad(from.lat)) * Math.cos(rad(to.lat)) * Math.sin(rad(to.lon - from.lon) / 2) ** 2;
+  const km = Math.round(2 * 6371 * Math.asin(Math.sqrt(a)) * ROAD_FACTOR * 10) / 10;
+  const fareLkr = Math.max(AMB_MIN, Math.round((AMB_BASE + AMB_PER_KM * km) / 50) * 50);
+  return { from: from.name, to: to.name, hospital: hospital.name, km, fareLkr, base: AMB_BASE, perKm: AMB_PER_KM, min: AMB_MIN, simulated: true };
+}
+app.get('/api/ambulance/quote', (req, res) => {
+  const q = ambulanceQuote(req.query.pickupTown, req.query.hospitalId);
+  q ? res.json(q) : res.status(400).json({ error: 'Unknown pickup town or hospital' });
+});
+app.get('/api/ambulance/options', (req, res) => {
+  res.json({ towns: seed.towns.map((t) => ({ id: t.id, name: t.name })), hospitals: seed.hospitals.map((h) => ({ id: h.id, name: h.name })) });
+});
 app.post('/api/ambulance', async (req, res) => {
   const appt = find(req.body.appointmentId);
   if (!appt) return res.status(404).json({ error: 'Appointment not found' });
-  const booking = { id: nextId('AMB'), appointmentId: appt.id, pickup: req.body.pickup || 'Home address', to: appt.hospitalName,
-    payment: await govPayCharge(2500, appt.id, (appt.patientName || '').split(' ')[0]) };
+  const quote = ambulanceQuote(req.body.pickupTown || 'colombo', req.body.hospitalId || appt.hospitalId);
+  if (!quote) return res.status(400).json({ error: 'Unknown pickup town or hospital' });
+  const booking = { id: nextId('AMB'), appointmentId: appt.id, pickup: quote.from, to: quote.hospital, km: quote.km,
+    payment: await govPayCharge(quote.fareLkr, appt.id, (appt.patientName || '').split(' ')[0]) };
   state.ambulances.push(booking); save();
   res.json(booking);
 });

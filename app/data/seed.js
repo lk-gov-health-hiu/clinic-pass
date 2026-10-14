@@ -11,11 +11,22 @@ const specialties = [
   { id: 'general-medicine', name: 'General Medicine', keywords: [] },
 ];
 
+// Simulated towns (approximate coordinates) used for the ambulance fare estimate.
+const towns = [
+  { id: 'colombo', name: 'Colombo', lat: 6.9271, lon: 79.8612 },
+  { id: 'ragama', name: 'Ragama', lat: 7.0278, lon: 79.9217 },
+  { id: 'gampaha', name: 'Gampaha', lat: 7.0840, lon: 80.0098 },
+  { id: 'negombo', name: 'Negombo', lat: 7.2008, lon: 79.8737 },
+  { id: 'kandy', name: 'Kandy', lat: 7.2906, lon: 80.6337 },
+  { id: 'galle', name: 'Galle', lat: 6.0535, lon: 80.2210 },
+  { id: 'kurunegala', name: 'Kurunegala', lat: 7.4863, lon: 80.3647 },
+];
+
 // slots: simple labels per day; capacity tracked at runtime
 const hospitals = [
-  { id: 'h1', name: 'Colombo North Teaching Hospital (simulated)', distanceKm: 4.2, specialties: ['cardiology', 'endocrinology', 'neurology', 'nephrology', 'general-medicine'] },
-  { id: 'h2', name: 'Ragama Base Hospital (simulated)', distanceKm: 9.8, specialties: ['ophthalmology', 'orthopaedics', 'endocrinology', 'general-medicine'] },
-  { id: 'h3', name: 'Kandy Provincial Hospital (simulated)', distanceKm: 112, specialties: ['cardiology', 'ophthalmology', 'neurology', 'orthopaedics', 'nephrology', 'general-medicine'] },
+  { id: 'h1', name: 'Colombo North Teaching Hospital (simulated)', town: 'colombo', distanceKm: 4.2, specialties: ['cardiology', 'endocrinology', 'neurology', 'nephrology', 'general-medicine'] },
+  { id: 'h2', name: 'Ragama Base Hospital (simulated)', town: 'ragama', distanceKm: 9.8, specialties: ['ophthalmology', 'orthopaedics', 'endocrinology', 'general-medicine'] },
+  { id: 'h3', name: 'Kandy Provincial Hospital (simulated)', town: 'kandy', distanceKm: 112, specialties: ['cardiology', 'ophthalmology', 'neurology', 'orthopaedics', 'nephrology', 'general-medicine'] },
 ];
 
 const slotTimes = ['08:30', '09:00', '09:30', '10:00', '10:30', '11:00'];
@@ -47,4 +58,4 @@ const records = {
   },
 };
 
-module.exports = { specialties, hospitals, slotTimes, patients, records };
+module.exports = { specialties, towns, hospitals, slotTimes, patients, records };

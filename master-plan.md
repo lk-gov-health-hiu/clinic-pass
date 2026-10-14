@@ -21,6 +21,7 @@ Repository: https://github.com/lk-gov-health-hiu/clinic-pass (MIT).
 | Pensioner priority | **Real**: Pensioner Status Verification API (identity check on SLUDI name/NIC/address, then residency lookup by SLUDI id). No age check, no override | `pensionerRegistryCheck()` |
 | Ambulance payment | **Real**: Payment Platform API (IPG sandbox); falls back to a labelled simulation if the call fails | `govPayCharge()` |
 | AI triage (symptoms to specialty, urgency, summary) | **Real**: Anthropic Messages API with tool use; keyword fallback if no key or call fails | `claudeTriage()` / `keywordTriage()` |
+| Ambulance fare estimate | **Simulated** tariff: LKR 1,500 base + LKR 100/km (straight-line km x 1.3, min LKR 2,000) between simulated towns; server recomputes it and sends it to the real payment call | `ambulanceQuote()`, `towns` in `app/data/seed.js` |
 | Armed forces / health worker priority | Simulated NDX registry check (`demoPriorityAll`) | `/api/priority/verify` |
 | Appointment and prescription credentials | **Simulated**: HMAC-signed JSON + QR (real VC issuance needs manual activation by sandbox ops) | `issueCredential()` |
 | Digi-Sign signature on prescription | Simulated (no API published; portal flow only) | `digiSign()` |
@@ -80,6 +81,7 @@ Secrets (never commit): `app/config.json` (Anthropic key, DIS client id and API 
 
 | When (14 Oct 2026) | Decision | Why |
 |---|---|---|
+| Afternoon, late | Ambulance price preview: pickup and hospital dropdowns re-quote the fare before booking (replaces the flat LKR 2,500); no "demo only" labels in the UI, fare note says simulated | User request, to show price changing with addresses |
 | Afternoon, late | Repo published as `lk-gov-health-hiu/clinic-pass` under MIT; workshop recordings, slide images and downloaded reference PDFs excluded; secrets git-ignored; tests added (`app/test`) | Open source for reuse by the Health Informatics Unit and others |
 | Afternoon, late | Pensioner priority uses **only** the Pensioner Status Verification API; SLUDI age check and demo override removed for pensioners. Registry rows added to the API's Playground tables to match SLUDI's name/address | User instruction: verify with the pensioner registry, not age |
 | Afternoon | Slot picker: next 5 priority and 5 normal slots, priority needs a verified category (pensioner / armed forces / health worker) | User requirement |

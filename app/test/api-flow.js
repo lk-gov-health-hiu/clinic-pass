@@ -36,7 +36,12 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
   await post(`/api/appointments/${a.id}/register`, {});
   check('record released after registration (consent)', (await fetch(`${BASE}/api/appointments/${a.id}/record`)).status === 200);
 
-  const amb = await post('/api/ambulance', { appointmentId: a.id });
+  const quote = (town, h) => fetch(`${BASE}/api/ambulance/quote?pickupTown=${town}&hospitalId=${h}`).then((r) => r.json());
+  const near = await quote('ragama', 'h2'), mid = await quote('ragama', 'h1'), far = await quote('ragama', 'h3');
+  check('ambulance fare rises with distance', near.fareLkr < mid.fareLkr && mid.fareLkr < far.fareLkr, `(LKR ${near.fareLkr} / ${mid.fareLkr} / ${far.fareLkr})`);
+  check('ambulance fare changes with pickup address', (await quote('galle', 'h2')).fareLkr !== near.fareLkr);
+  const amb = await post('/api/ambulance', { appointmentId: a.id, pickupTown: 'ragama', hospitalId: 'h3', amountLkr: 1 });
+  check('ambulance charged the server-side fare', amb.payment.amountLkr === far.fareLkr, `(LKR ${amb.payment.amountLkr})`);
   check('ambulance payment initiated', ['INITIATED', 'PAID'].includes(amb.payment.status), `(${amb.payment.provider})`);
 
   const visit = await post(`/api/appointments/${a.id}/visit`, { diagnosis: 'Test', notes: '', medicines: [{ name: 'Test drops', dose: 'qid', days: 7 }] });
